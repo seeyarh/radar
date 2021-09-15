@@ -2,16 +2,16 @@ use base64::{decode, encode};
 use futures::stream::StreamExt;
 use native_tls::TlsConnector;
 use serde::{Deserialize, Serialize};
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt, AsyncWrite, AsyncRead};
+use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::time::{error::Elapsed, timeout};
-use tracing::{instrument, info};
+use tracing::{info, instrument};
 
 use std::fmt;
+use std::marker::Unpin;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::marker::Unpin;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub struct Probe {
@@ -143,11 +143,11 @@ async fn run_scan(target: &Target, probes: &[Probe]) -> Result<Detection, RadarS
                 Ok(detection) => return Ok(detection),
                 Err(e) => info!("{:?}", e),
             }
-        } else  {
-        match run_probe(&host, &mut stream, &mut buf, probe).await {
-            Ok(detection) => return Ok(detection),
-            Err(e) => info!("{:?}", e),
-        }
+        } else {
+            match run_probe(&host, &mut stream, &mut buf, probe).await {
+                Ok(detection) => return Ok(detection),
+                Err(e) => info!("{:?}", e),
+            }
         }
     }
 
@@ -157,15 +157,18 @@ async fn run_scan(target: &Target, probes: &[Probe]) -> Result<Detection, RadarS
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Unpin {}
 impl<T: AsyncRead + AsyncWrite + Unpin> AsyncReadWrite for T {}
 
-
-async fn try_tls(host: &str, domain: &str, stream: TcpStream) -> Result<(Box<dyn AsyncReadWrite>, bool), RadarScanError> 
-{
+async fn try_tls(
+    host: &str,
+    domain: &str,
+    stream: TcpStream,
+) -> Result<(Box<dyn AsyncReadWrite>, bool), RadarScanError> {
     info!("attempting to negotiate tls connection with host {}", host);
     let cx = TlsConnector::builder()
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)
         .use_sni(false)
-        .build().expect("failed to build tls connector");
+        .build()
+        .expect("failed to build tls connector");
     let cx = tokio_native_tls::TlsConnector::from(cx);
     match cx.connect(&domain, stream).await {
         Ok(s) => {
@@ -174,8 +177,7 @@ async fn try_tls(host: &str, domain: &str, stream: TcpStream) -> Result<(Box<dyn
         }
         Err(e) => {
             info!("Error {} during tls negotiation with host {}", e, host);
-            let s = 
-            timeout(Duration::from_secs(TIMEOUT), async {
+            let s = timeout(Duration::from_secs(TIMEOUT), async {
                 TcpStream::connect(&host).await
             })
             .await??;
@@ -184,7 +186,12 @@ async fn try_tls(host: &str, domain: &str, stream: TcpStream) -> Result<(Box<dyn
     }
 }
 
-async fn run_probe<S>(host: &str, stream: &mut S, mut buf: &mut [u8], probe: &Probe) -> Result<Detection, RadarScanError>
+async fn run_probe<S>(
+    host: &str,
+    stream: &mut S,
+    mut buf: &mut [u8],
+    probe: &Probe,
+) -> Result<Detection, RadarScanError>
 where
     S: AsyncReadExt + AsyncWriteExt + Unpin,
 {
@@ -198,16 +205,26 @@ where
         stream.read(&mut buf).await
     })
     .await??;
-    info!("finished reading from host {}, {:?}", host, &buf[..bytes_read]);
+    info!(
+        "finished reading from host {}, {:?}",
+        host,
+        &buf[..bytes_read]
+    );
 
     let response = decode(&probe.response).expect("failed to decode response b64");
-    info!("response to match {}", String::from_utf8(response.clone()).unwrap());
-    info!("response recvd {}", String::from_utf8(buf[..bytes_read].to_vec()).unwrap());
+    info!(
+        "response to match {}",
+        String::from_utf8(response.clone()).unwrap()
+    );
+    info!(
+        "response recvd {}",
+        String::from_utf8(buf[..bytes_read].to_vec()).unwrap()
+    );
     if buf[..response.len()] == response {
         return Ok(Detection {
             service: probe.service.clone(),
             response: encode(response),
-        })
+        });
     }
 
     // ignore the result

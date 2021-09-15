@@ -41,7 +41,9 @@ async fn get_service_probes(probes_file: &str) -> Result<Vec<Probe>, Box<dyn Err
 
 const MAX_BUFFERED_RESULTS: usize = 10000;
 async fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
-    let service_probes = get_service_probes(&opts.probes_file).await.expect("failed to get probes");
+    let service_probes = get_service_probes(&opts.probes_file)
+        .await
+        .expect("failed to get probes");
     tracing::info!("loaded probes: {:?}", service_probes);
 
     let start = Instant::now();

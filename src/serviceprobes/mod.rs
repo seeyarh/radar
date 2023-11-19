@@ -9,7 +9,7 @@ pub struct ServiceProbe {
     pub directives: ProbeDirectives,
 }
 impl ServiceProbe {
-    pub fn check_match(&self, response: &str) -> Option<Match> {
+    pub fn check_match(&self, response: &[u8]) -> Option<Match> {
         let empty: Vec<Match> = vec![];
         let matches = self.directives.matches.as_ref().unwrap_or(&empty);
         let soft_matches = self.directives.soft_matches.as_ref().unwrap_or(&empty);
@@ -93,7 +93,7 @@ impl FromStr for TransportProtocol {
 pub struct Probe {
     pub transport_protocol: TransportProtocol,
     pub name: String,
-    pub data: String,
+    pub data: Vec<u8>,
     pub no_payload: bool,
 }
 
@@ -109,19 +109,15 @@ pub struct Match {
 
 // if the regex in the service_match matches the response,
 // return a new Match with the version_info field replaced by the capture groups
-pub fn get_match(service_match: &Match, response: &str) -> Option<Match> {
-    if !service_match
-        .re
-        .is_match(response.as_bytes())
-        .unwrap_or_else(|e| {
-            panic!(
-                "failed to run regex {} on response {} with error {}",
-                service_match.pattern,
-                response,
-                e.to_string()
-            )
-        })
-    {
+pub fn get_match(service_match: &Match, response: &[u8]) -> Option<Match> {
+    if !service_match.re.is_match(response).unwrap_or_else(|e| {
+        panic!(
+            "failed to run regex {} on response {:?} with error {}",
+            service_match.pattern,
+            response,
+            e.to_string()
+        )
+    }) {
         return None;
     }
 

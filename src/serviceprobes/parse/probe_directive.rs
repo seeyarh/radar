@@ -1,5 +1,6 @@
 use crate::serviceprobes::{Probe, TransportProtocol};
 use std::str::FromStr;
+use unescaper::unescape;
 
 pub fn parse_probe_line(line: &str) -> Option<Probe> {
     let parts: Vec<&str> = line.split_whitespace().collect();
@@ -15,6 +16,8 @@ pub fn parse_probe_line(line: &str) -> Option<Probe> {
     let remainder = &probe[probe_start_index..];
     let probe_end_index = remainder.find(delimiter)?;
     let probe = &remainder[..probe_end_index];
+    let probe = unescape(probe).unwrap();
+    let probe = probe.as_bytes();
     let mut no_payload = false;
 
     if remainder.len() > probe_end_index + 1 {
@@ -45,7 +48,7 @@ mod tests {
         let parsed_line = result.unwrap();
 
         assert_eq!(parsed_line.transport_protocol, TransportProtocol::TCP);
-        assert_eq!(parsed_line.data, "");
+        assert_eq!(parsed_line.data, "".as_bytes());
         assert_eq!(parsed_line.no_payload, false);
     }
 
@@ -57,7 +60,7 @@ mod tests {
         let parsed_line = result.unwrap();
 
         assert_eq!(parsed_line.transport_protocol, TransportProtocol::TCP);
-        assert_eq!(parsed_line.data, r#"\r\n\r\n"#);
+        assert_eq!(parsed_line.data, ("\r\n\r\n").as_bytes());
         assert_eq!(parsed_line.no_payload, false);
     }
 
@@ -69,7 +72,7 @@ mod tests {
         let parsed_line = result.unwrap();
 
         assert_eq!(parsed_line.transport_protocol, TransportProtocol::UDP);
-        assert_eq!(parsed_line.data, r#"\x02"#);
+        assert_eq!(parsed_line.data, ("\x02").as_bytes());
         assert_eq!(parsed_line.no_payload, true);
     }
 }

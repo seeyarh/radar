@@ -9,7 +9,7 @@ use tokio::fs::File;
 use tokio::io::{self, AsyncWriteExt, BufWriter};
 use tokio::sync::mpsc;
 
-use radar::scan::{start_scan, RadarResult, ScanConfig, Target};
+use radar::scan::{start_scan, RadarOutput, ScanConfig, Target};
 use radar::serviceprobes::parse::read_service_probes_file;
 
 /// Run Radar Protocol Detector
@@ -97,7 +97,7 @@ async fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
 
 async fn write_results<T>(
     mut writer: BufWriter<T>,
-    mut rx: mpsc::Receiver<RadarResult>,
+    mut rx: mpsc::Receiver<RadarOutput>,
 ) -> io::Result<u64>
 where
     T: AsyncWriteExt + Unpin,

@@ -1,8 +1,0 @@
-- service: http
-  request: R0VUIC8gSFRUUC8xLjENCkhvc3Q6IHd3dy5nb29nbGUuY29tDQpVc2VyLUFnZW50OiBjdXJsLzcuNTQuMA0KQWNjZXB0OiAqLyoNCg0K
-  response: SFRUUC8xLjE=
-
-
-- service: ssh
-  request: U1NILTIuMC1PcGVuU1NIXzcuOXAxIERlYmlhbi0xMCtkZWIxMHUyDQo=
-  response: U1NILTIuMAo=

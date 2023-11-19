@@ -5,12 +5,12 @@ use clap::Parser;
 use std::error::Error;
 use std::time::Instant;
 
-use tokio::fs::{read_to_string, File};
+use tokio::fs::File;
 use tokio::io::{self, AsyncWriteExt, BufWriter};
 use tokio::sync::mpsc;
 
-use radar::parseprobes::read_service_probes_file;
-use radar::scan::{start_scan, Probe, RadarResult, ScanConfig, Target};
+use radar::scan::{start_scan, RadarResult, ScanConfig, Target};
+use radar::serviceprobes::parse::read_service_probes_file;
 
 /// Run Radar Protocol Detector
 #[derive(Debug, Clone, Parser)]
@@ -41,7 +41,7 @@ struct Opts {
     udp: bool,
 }
 
-impl Into<ScanConfig> for Opt {
+impl Into<ScanConfig> for Opts {
     fn into(self) -> ScanConfig {
         ScanConfig {
             tcp: self.tcp,
@@ -62,7 +62,7 @@ async fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
         .has_headers(false)
         .create_deserializer(f);
 
-    let f = opts.out_file.unwrap();
+    let f = &opts.out_file.as_ref().unwrap();
     let f = File::create(&f).await?;
     let writer = io::BufWriter::new(f);
 
@@ -81,7 +81,7 @@ async fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
         }
     });
 
-    start_scan(targets, service_probes, tx, opts.max_concurrent_scans).await;
+    start_scan(targets, service_probes, tx, opts.into()).await;
     let n_targets = writer_task.await??;
 
     let duration = start.elapsed();

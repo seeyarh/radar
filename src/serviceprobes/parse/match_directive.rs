@@ -1,14 +1,6 @@
-use serde::{Deserialize, Serialize};
+use crate::serviceprobes::Match;
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub struct MatchLine {
-    service: String,
-    pattern: String,
-    pattern_options: String,
-    version_info: String,
-}
-
-pub fn parse_match_line(line: &str) -> Option<MatchLine> {
+pub fn parse_match_line(line: &str) -> Option<Match> {
     let parts: Vec<&str> = line.split_whitespace().collect();
     if parts.len() < 3 || (parts[0] != "match" && parts[0] != "softmatch") {
         return None;
@@ -45,7 +37,7 @@ pub fn parse_match_line(line: &str) -> Option<MatchLine> {
         version_info = remainder[pattern_end_index + pattern_options.len() + 1..].trim();
     }
 
-    Some(MatchLine {
+    Some(Match {
         service,
         pattern: pattern.into(),
         pattern_options: pattern_options.into(),
@@ -76,8 +68,6 @@ mod tests {
             "p/Pure-FTPd/ v/$1/ cpe:/a:pureftpd:pure-ftpd:$1/"
         );
     }
-
-    // Additional tests for different scenarios can be added here
 
     #[test]
     fn test_parse_match_line_with_pattern_options() {

@@ -1,54 +1,18 @@
-use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Lines};
 use std::iter::Peekable;
 
-pub mod nmapmatch;
-pub mod probe;
+pub mod match_directive;
+pub mod probe_directive;
 
-use nmapmatch::{parse_match_line, MatchLine};
-use probe::Probe;
+use crate::serviceprobes::{
+    Match, ProbeDirectives, ServiceProbe, ServiceProbes, TransportProtocol,
+};
+use match_directive::parse_match_line;
+use probe_directive::parse_probe_line;
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub struct ProbeDirectives {
-    matches: Option<Vec<nmapmatch::MatchLine>>,
-    soft_matches: Option<Vec<nmapmatch::MatchLine>>,
-    ports: Option<Vec<u16>>,
-    ssl_ports: Option<Vec<u16>>,
-    total_wait_ms: Option<usize>,
-    tcp_wrapped_ms: Option<usize>,
-    rarity: Option<usize>,
-    fallback: Option<Vec<String>>,
-}
-
-impl ProbeDirectives {
-    fn new() -> ProbeDirectives {
-        Self {
-            matches: None,
-            soft_matches: None,
-            ports: None,
-            ssl_ports: None,
-            total_wait_ms: None,
-            tcp_wrapped_ms: None,
-            rarity: None,
-            fallback: None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub struct ServiceProbes {
-    tcp_probes: Vec<ServiceProbe>,
-    udp_probes: Vec<ServiceProbe>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub struct ServiceProbe {
-    probe: Probe,
-    directives: ProbeDirectives,
-}
-
-pub fn read_service_probes_file(f: &str) {
+pub fn read_service_probes_file(f: &str) -> ServiceProbes {
+    let mut service_probes = ServiceProbes::new();
     let f =
         File::open(f).unwrap_or_else(|_| panic!("failed to read nmap_service_probes file {}", f));
     let mut lines = BufReader::new(f).lines();
@@ -57,13 +21,25 @@ pub fn read_service_probes_file(f: &str) {
         if line.starts_with('#') || line.trim().is_empty() {
             continue;
         } else if line.starts_with("Probe") {
-            let probe = probe::parse_probe_line(&line)
+            let probe = parse_probe_line(&line)
                 .unwrap_or_else(|| panic!("failed to parse probe line {}", &line));
             let directives = read_probe_directives(&mut lines);
+            match &probe.transport_protocol {
+                TransportProtocol::TCP => {
+                    service_probes
+                        .tcp_probes
+                        .push(ServiceProbe { probe, directives });
+                }
+                TransportProtocol::UDP => {
+                    service_probes
+                        .udp_probes
+                        .push(ServiceProbe { probe, directives });
+                }
+            }
         }
     }
+    service_probes
 }
-
 // Read the ports, sslports, totalwaitms, tcpwrappedms rarity, and fallback directives,
 // then read all the match directives
 fn read_probe_directives(lines: &mut Lines<BufReader<File>>) -> ProbeDirectives {
@@ -127,9 +103,7 @@ fn read_probe_directives(lines: &mut Lines<BufReader<File>>) -> ProbeDirectives 
 }
 
 // Read all the matches for a given probe, stopping at the next instance of a Probe directive
-fn read_matches(
-    lines: &mut Peekable<&mut Lines<BufReader<File>>>,
-) -> (Vec<MatchLine>, Vec<MatchLine>) {
+fn read_matches(lines: &mut Peekable<&mut Lines<BufReader<File>>>) -> (Vec<Match>, Vec<Match>) {
     let mut matches = vec![];
     let mut soft_matches = vec![];
     loop {

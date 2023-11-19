@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tokio::time::{error::Elapsed, timeout};
 use tracing::{info, instrument};
 
-use crate::parseprobes::*;
+use crate::serviceprobes::*;
 use std::fmt;
 use std::marker::Unpin;
 use std::time::Duration;
@@ -32,9 +32,9 @@ pub struct RadarResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanConfig {
-    tcp: bool,
-    udp: bool,
-    max_concurrent_scans: usize,
+    pub tcp: bool,
+    pub udp: bool,
+    pub max_concurrent_scans: usize,
 }
 
 pub async fn start_scan<S>(
@@ -47,7 +47,7 @@ pub async fn start_scan<S>(
 {
     let detections = targets
         .map(|target| async { scan(target, &probes).await })
-        .buffered(max_concurrent_scans);
+        .buffered(config.max_concurrent_scans);
 
     detections
         .for_each(|d| async {
@@ -130,7 +130,7 @@ async fn run_scan(
 ) -> Result<Detection, RadarScanError> {
     let mut tls = true;
     let mut buf = vec![0u8; 1600];
-    for probe in probes {
+    for probe in &service_probes.tcp_probes {
         let host = format!("{}:{}", target.ip, target.port);
         info!("attempting to connect to host {}", host);
         let mut stream = timeout(Duration::from_secs(TIMEOUT), async {
@@ -143,12 +143,12 @@ async fn run_scan(
             let (mut stream, use_tls) = try_tls(&host, &target.ip, stream).await?;
             tls = use_tls;
 
-            match run_probe(&host, &mut stream, &mut buf, probe).await {
+            match run_service_probe(&host, &mut stream, &mut buf, &probe).await {
                 Ok(detection) => return Ok(detection),
                 Err(e) => info!("{:?}", e),
             }
         } else {
-            match run_probe(&host, &mut stream, &mut buf, probe).await {
+            match run_service_probe(&host, &mut stream, &mut buf, &probe).await {
                 Ok(detection) => return Ok(detection),
                 Err(e) => info!("{:?}", e),
             }
@@ -199,7 +199,8 @@ async fn run_service_probe<S>(
 where
     S: AsyncReadExt + AsyncWriteExt + Unpin,
 {
-    let request = decode(&probe.request).expect("failed to decode request b64");
+    /*
+    let request = service_probe.;
     info!("writing to host {}", host);
     stream.write_all(&request).await?;
     info!("finished writing to host {}", host);
@@ -233,5 +234,6 @@ where
 
     // ignore the result
     let _ = stream.shutdown();
+    */
     Err(RadarScanError::NoDetection)
 }

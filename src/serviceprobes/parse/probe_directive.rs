@@ -1,31 +1,5 @@
-use serde::{Deserialize, Serialize};
+use crate::serviceprobes::{Probe, TransportProtocol};
 use std::str::FromStr;
-
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub enum TransportProtocol {
-    TCP,
-    UDP,
-}
-
-impl FromStr for TransportProtocol {
-    type Err = ();
-
-    fn from_str(input: &str) -> Result<TransportProtocol, Self::Err> {
-        match input {
-            "TCP" => Ok(TransportProtocol::TCP),
-            "UDP" => Ok(TransportProtocol::UDP),
-            _ => Err(()),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub struct Probe {
-    transport_protocol: TransportProtocol,
-    name: String,
-    data: String,
-    no_payload: bool,
-}
 
 pub fn parse_probe_line(line: &str) -> Option<Probe> {
     let parts: Vec<&str> = line.split_whitespace().collect();

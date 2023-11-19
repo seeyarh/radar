@@ -8,17 +8,11 @@ use tokio::sync::mpsc;
 use tokio::time::{error::Elapsed, timeout};
 use tracing::{info, instrument};
 
+use crate::parseprobes::*;
 use std::fmt;
 use std::marker::Unpin;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
-
-#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
-pub struct Probe {
-    pub service: String,
-    pub request: String,
-    pub response: String,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub struct Target {
@@ -36,11 +30,18 @@ pub struct RadarResult {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanConfig {
+    tcp: bool,
+    udp: bool,
+    max_concurrent_scans: usize,
+}
+
 pub async fn start_scan<S>(
     targets: S,
-    probes: Vec<Probe>,
+    probes: ServiceProbes,
     tx: mpsc::Sender<RadarResult>,
-    max_concurrent_scans: usize,
+    config: ScanConfig,
 ) where
     S: futures::Stream<Item = Target>,
 {
@@ -84,8 +85,8 @@ impl From<Elapsed> for RadarScanError {
     }
 }
 
-pub async fn scan(target: Target, probes: &[Probe]) -> RadarResult {
-    match run_scan(&target, probes).await {
+pub async fn scan(target: Target, service_probes: &ServiceProbes) -> RadarResult {
+    match run_scan(&target, service_probes).await {
         Ok(detection) => {
             let timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -123,7 +124,10 @@ struct Detection {
 }
 
 #[instrument]
-async fn run_scan(target: &Target, probes: &[Probe]) -> Result<Detection, RadarScanError> {
+async fn run_scan(
+    target: &Target,
+    service_probes: &ServiceProbes,
+) -> Result<Detection, RadarScanError> {
     let mut tls = true;
     let mut buf = vec![0u8; 1600];
     for probe in probes {
@@ -186,11 +190,11 @@ async fn try_tls(
     }
 }
 
-async fn run_probe<S>(
+async fn run_service_probe<S>(
     host: &str,
     stream: &mut S,
     mut buf: &mut [u8],
-    probe: &Probe,
+    service_probe: &ServiceProbe,
 ) -> Result<Detection, RadarScanError>
 where
     S: AsyncReadExt + AsyncWriteExt + Unpin,

@@ -6,7 +6,8 @@ use std::iter::Peekable;
 pub mod nmapmatch;
 pub mod probe;
 
-use crate::nmapmatch::{parse_match_line, MatchLine};
+use nmapmatch::{parse_match_line, MatchLine};
+use probe::Probe;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct ProbeDirectives {
@@ -33,6 +34,18 @@ impl ProbeDirectives {
             fallback: None,
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
+pub struct ServiceProbes {
+    tcp_probes: Vec<ServiceProbe>,
+    udp_probes: Vec<ServiceProbe>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
+pub struct ServiceProbe {
+    probe: Probe,
+    directives: ProbeDirectives,
 }
 
 pub fn read_service_probes_file(f: &str) {

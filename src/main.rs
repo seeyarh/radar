@@ -1,8 +1,7 @@
 //! Radar protocol detector CLI
 use futures::stream::StreamExt;
 
-use clap::Clap;
-
+use clap::Parser;
 use std::error::Error;
 use std::time::Instant;
 
@@ -10,11 +9,12 @@ use tokio::fs::{read_to_string, File};
 use tokio::io::{self, AsyncWriteExt, BufWriter};
 use tokio::sync::mpsc;
 
-use radar::scan::{start_scan, Probe, RadarResult, Target};
+use radar::parseprobes::read_service_probes_file;
+use radar::scan::{start_scan, Probe, RadarResult, ScanConfig, Target};
 
 /// Run Radar Protocol Detector
-#[derive(Clap, Debug)]
-#[clap(version = "1.0", author = "Collins Huff chuff@paloaltonetworks.com")]
+#[derive(Debug, Clone, Parser)]
+#[command(version = "0.0.1", author = "Collins Huff")]
 struct Opts {
     /// Path to output file, defaults to stdout
     #[clap(short, long)]
@@ -31,21 +31,29 @@ struct Opts {
     /// Max concurrent scans
     #[clap(long, default_value = "50000")]
     max_concurrent_scans: usize,
+
+    /// run tcp probes
+    #[clap(short, long)]
+    tcp: bool,
+
+    /// run udp probes
+    #[clap(short, long)]
+    udp: bool,
 }
 
-async fn get_service_probes(probes_file: &str) -> Result<Vec<Probe>, Box<dyn Error>> {
-    let s = read_to_string(probes_file).await?;
-    let probes: Vec<Probe> = serde_yaml::from_str(&s)?;
-    Ok(probes)
+impl Into<ScanConfig> for Opt {
+    fn into(self) -> ScanConfig {
+        ScanConfig {
+            tcp: self.tcp,
+            udp: self.udp,
+            max_concurrent_scans: self.max_concurrent_scans,
+        }
+    }
 }
 
 const MAX_BUFFERED_RESULTS: usize = 10000;
 async fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
-    let service_probes = get_service_probes(&opts.probes_file)
-        .await
-        .expect("failed to get probes");
-    tracing::info!("loaded probes: {:?}", service_probes);
-
+    let service_probes = read_service_probes_file(&opts.probes_file);
     let start = Instant::now();
 
     let f = io::stdin();

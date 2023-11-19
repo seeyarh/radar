@@ -6,10 +6,9 @@ pub mod match_directive;
 pub mod probe_directive;
 
 use crate::serviceprobes::{
+    parse::{match_directive::parse_match_line, probe_directive::parse_probe_line},
     Match, ProbeDirectives, ServiceProbe, ServiceProbes, TransportProtocol,
 };
-use match_directive::parse_match_line;
-use probe_directive::parse_probe_line;
 
 pub fn read_service_probes_file(f: &str) -> ServiceProbes {
     let mut service_probes = ServiceProbes::new();
@@ -40,6 +39,7 @@ pub fn read_service_probes_file(f: &str) -> ServiceProbes {
     }
     service_probes
 }
+
 // Read the ports, sslports, totalwaitms, tcpwrappedms rarity, and fallback directives,
 // then read all the match directives
 fn read_probe_directives(lines: &mut Lines<BufReader<File>>) -> ProbeDirectives {

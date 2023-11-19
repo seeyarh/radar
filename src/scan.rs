@@ -1,11 +1,11 @@
 use base64::{decode, encode};
 use futures::stream::StreamExt;
-use native_tls::TlsConnector;
 use serde::{Deserialize, Serialize};
 use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::time::{error::Elapsed, timeout};
+use tokio_native_tls::TlsConnector;
 use tracing::{info, instrument};
 
 use crate::serviceprobes::*;
@@ -21,13 +21,17 @@ pub struct Target {
     pub port: u16,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RadarResult {
     pub target: Target,
     pub timestamp: u64,
-    pub service: Option<String>,
+    pub tls: Option<bool>,
+    pub tls_response: Option<String>,
+    pub tls_service_match: Option<Match>,
     pub response: Option<String>,
+    pub service_match: Option<Match>,
     pub error: Option<String>,
+    pub error_with_tls: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,8 +49,16 @@ pub async fn start_scan<S>(
 ) where
     S: futures::Stream<Item = Target>,
 {
+    let cx = native_tls::TlsConnector::builder()
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .use_sni(false)
+        .build()
+        .expect("failed to build tls connector");
+    let cx = tokio_native_tls::TlsConnector::from(cx);
+
     let detections = targets
-        .map(|target| async { scan(target, &probes).await })
+        .map(|target| async { scan(target, &probes, &cx).await })
         .buffered(config.max_concurrent_scans);
 
     detections
@@ -61,6 +73,7 @@ pub enum RadarScanError {
     Io(io::Error),
     Elapsed(Elapsed),
     NoDetection,
+    Tls(native_tls::Error),
 }
 
 impl fmt::Display for RadarScanError {
@@ -68,6 +81,7 @@ impl fmt::Display for RadarScanError {
         match *self {
             RadarScanError::Io(ref err) => err.fmt(f),
             RadarScanError::Elapsed(ref err) => err.fmt(f),
+            RadarScanError::Tls(ref err) => err.fmt(f),
             RadarScanError::NoDetection => write!(f, "No Detection"),
         }
     }
@@ -85,19 +99,60 @@ impl From<Elapsed> for RadarScanError {
     }
 }
 
-pub async fn scan(target: Target, service_probes: &ServiceProbes) -> RadarResult {
-    match run_scan(&target, service_probes).await {
+impl From<native_tls::Error> for RadarScanError {
+    fn from(err: native_tls::Error) -> RadarScanError {
+        RadarScanError::Tls(err)
+    }
+}
+
+pub async fn scan(
+    target: Target,
+    service_probes: &ServiceProbes,
+    tls_connector: &TlsConnector,
+) -> RadarResult {
+    match run_scan(&target, service_probes, false, tls_connector).await {
         Ok(detection) => {
             let timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("System time before unix epoch")
                 .as_secs();
-            RadarResult {
-                target,
-                timestamp,
-                service: Some(detection.service),
-                response: Some(detection.response),
-                error: None,
+            if detection.service_match.service.starts_with("ssl") {
+                match run_scan(&target, service_probes, false, tls_connector).await {
+                    Ok(detection_with_tls) => RadarResult {
+                        target,
+                        timestamp,
+                        tls: Some(true),
+                        tls_response: Some(detection.response),
+                        tls_service_match: Some(detection.service_match),
+                        service_match: Some(detection_with_tls.service_match),
+                        response: Some(detection_with_tls.response),
+                        error: None,
+                        error_with_tls: None,
+                    },
+                    Err(e) => RadarResult {
+                        target,
+                        timestamp,
+                        tls: Some(true),
+                        tls_response: Some(detection.response),
+                        tls_service_match: Some(detection.service_match),
+                        service_match: None,
+                        response: None,
+                        error: None,
+                        error_with_tls: Some(e.to_string()),
+                    },
+                }
+            } else {
+                RadarResult {
+                    target,
+                    timestamp,
+                    tls: Some(true),
+                    tls_response: Some(detection.response),
+                    tls_service_match: Some(detection.service_match),
+                    service_match: None,
+                    response: None,
+                    error: None,
+                    error_with_tls: None,
+                }
             }
         }
         Err(e) => {
@@ -108,9 +163,13 @@ pub async fn scan(target: Target, service_probes: &ServiceProbes) -> RadarResult
             RadarResult {
                 target,
                 timestamp,
-                service: None,
+                tls: None,
+                tls_response: None,
+                tls_service_match: None,
+                service_match: None,
                 response: None,
                 error: Some(e.to_string()),
+                error_with_tls: None,
             }
         }
     }
@@ -119,16 +178,17 @@ pub async fn scan(target: Target, service_probes: &ServiceProbes) -> RadarResult
 const TIMEOUT: u64 = 5;
 
 struct Detection {
-    service: String,
     response: String,
+    service_match: Match,
 }
 
 #[instrument]
 async fn run_scan(
     target: &Target,
     service_probes: &ServiceProbes,
+    tls: bool,
+    tls_connector: &TlsConnector,
 ) -> Result<Detection, RadarScanError> {
-    let mut tls = true;
     let mut buf = vec![0u8; 1600];
     for probe in &service_probes.tcp_probes {
         let host = format!("{}:{}", target.ip, target.port);
@@ -140,9 +200,9 @@ async fn run_scan(
         info!("successfully connected to host {}", host);
 
         if tls {
-            let (mut stream, use_tls) = try_tls(&host, &target.ip, stream).await?;
-            tls = use_tls;
-
+            info!("attempting to negotiate tls connection with host {}", host);
+            let mut stream = tls_connector.connect(&target.ip, stream).await?;
+            info!("successfully negotiated tls connection with host {}", host);
             match run_service_probe(&host, &mut stream, &mut buf, &probe).await {
                 Ok(detection) => return Ok(detection),
                 Err(e) => info!("{:?}", e),
@@ -161,35 +221,6 @@ async fn run_scan(
 trait AsyncReadWrite: AsyncRead + AsyncWrite + Unpin {}
 impl<T: AsyncRead + AsyncWrite + Unpin> AsyncReadWrite for T {}
 
-async fn try_tls(
-    host: &str,
-    domain: &str,
-    stream: TcpStream,
-) -> Result<(Box<dyn AsyncReadWrite>, bool), RadarScanError> {
-    info!("attempting to negotiate tls connection with host {}", host);
-    let cx = TlsConnector::builder()
-        .danger_accept_invalid_certs(true)
-        .danger_accept_invalid_hostnames(true)
-        .use_sni(false)
-        .build()
-        .expect("failed to build tls connector");
-    let cx = tokio_native_tls::TlsConnector::from(cx);
-    match cx.connect(&domain, stream).await {
-        Ok(s) => {
-            info!("successfully negotiated tls connection with host {}", host);
-            Ok((Box::new(s), true))
-        }
-        Err(e) => {
-            info!("Error {} during tls negotiation with host {}", e, host);
-            let s = timeout(Duration::from_secs(TIMEOUT), async {
-                TcpStream::connect(&host).await
-            })
-            .await??;
-            Ok((Box::new(s), false))
-        }
-    }
-}
-
 async fn run_service_probe<S>(
     host: &str,
     stream: &mut S,
@@ -199,11 +230,12 @@ async fn run_service_probe<S>(
 where
     S: AsyncReadExt + AsyncWriteExt + Unpin,
 {
-    /*
-    let request = service_probe.;
-    info!("writing to host {}", host);
-    stream.write_all(&request).await?;
-    info!("finished writing to host {}", host);
+    let request = &service_probe.probe.data;
+    if request.len() > 0 {
+        info!("writing to host {}", host);
+        stream.write_all(&request.as_bytes()).await?;
+        info!("finished writing to host {}", host);
+    }
 
     info!("reading from host {}", host);
     let bytes_read = timeout(Duration::from_secs(TIMEOUT), async {
@@ -216,24 +248,13 @@ where
         &buf[..bytes_read]
     );
 
-    let response = decode(&probe.response).expect("failed to decode response b64");
-    info!(
-        "response to match {}",
-        String::from_utf8(response.clone()).unwrap()
-    );
-    info!(
-        "response recvd {}",
-        String::from_utf8(buf[..bytes_read].to_vec()).unwrap()
-    );
-    if buf[..response.len()] == response {
-        return Ok(Detection {
-            service: probe.service.clone(),
-            response: encode(response),
-        });
-    }
-
-    // ignore the result
+    let response = std::str::from_utf8(buf).expect("failed to decode response to utf8");
     let _ = stream.shutdown();
-    */
-    Err(RadarScanError::NoDetection)
+    match service_probe.check_match(response) {
+        Some(service_match) => Ok(Detection {
+            response: response.into(),
+            service_match,
+        }),
+        None => Err(RadarScanError::NoDetection),
+    }
 }

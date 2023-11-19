@@ -1,4 +1,5 @@
 use crate::serviceprobes::Match;
+use pcre2::bytes::RegexBuilder;
 
 pub fn parse_match_line(line: &str) -> Option<Match> {
     let parts: Vec<&str> = line.split_whitespace().collect();
@@ -37,9 +38,22 @@ pub fn parse_match_line(line: &str) -> Option<Match> {
         version_info = remainder[pattern_end_index + pattern_options.len() + 1..].trim();
     }
 
+    let re = RegexBuilder::new()
+        .caseless(pattern_options.contains("i"))
+        .dotall(pattern_options.contains("s"))
+        .build(&pattern)
+        .unwrap_or_else(|e| {
+            panic!(
+                "failed to create regex for match line {} with error {}",
+                line,
+                e.to_string()
+            )
+        });
+
     Some(Match {
         service,
         pattern: pattern.into(),
+        re,
         pattern_options: pattern_options.into(),
         version_info: version_info.into(),
     })
@@ -55,18 +69,26 @@ mod tests {
         let result = parse_match_line(line);
 
         assert!(result.is_some());
-        let parsed_line = result.unwrap();
+        let parsed_match = result.unwrap();
 
-        assert_eq!(parsed_line.service, "ftp");
+        assert_eq!(parsed_match.service, "ftp");
         assert_eq!(
-            parsed_line.pattern,
+            parsed_match.pattern,
             "^220.*Welcome to .*Pure-?FTPd (\\d\\S+\\s*)"
         );
-        assert_eq!(parsed_line.pattern_options, "");
+        assert_eq!(parsed_match.pattern_options, "");
         assert_eq!(
-            parsed_line.version_info,
+            parsed_match.version_info,
             "p/Pure-FTPd/ v/$1/ cpe:/a:pureftpd:pure-ftpd:$1/"
         );
+
+        let example_response = "220 Welcome to Pure-FTPd 1.0.24";
+        let captures = parsed_match
+            .re
+            .captures(example_response.as_bytes())
+            .expect("error running regex")
+            .expect("no captues");
+        captures.get(1).expect("no group");
     }
 
     #[test]

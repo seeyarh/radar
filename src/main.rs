@@ -53,8 +53,9 @@ impl Into<ScanConfig> for Opts {
 
 const MAX_BUFFERED_RESULTS: usize = 10000;
 async fn run(opts: Opts) -> Result<(), Box<dyn Error>> {
-    let service_probes = read_service_probes_file(&opts.probes_file);
     let start = Instant::now();
+    let service_probes = read_service_probes_file(&opts.probes_file);
+    tracing::info!("loaded service probes in {}", start.elapsed().as_secs_f64());
 
     let f = io::stdin();
 

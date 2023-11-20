@@ -9,7 +9,8 @@ use tokio::fs::File;
 use tokio::io::{self, AsyncWriteExt, BufWriter};
 use tokio::sync::mpsc;
 
-use radar::scan::{start_scan, RadarOutput, ScanConfig, Target};
+use radar::output::RadarOutput;
+use radar::scan::{start_scan, ScanConfig, Target};
 use radar::serviceprobes::parse::read_service_probes_file;
 
 /// Run Radar Protocol Detector

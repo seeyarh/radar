@@ -7,7 +7,6 @@ edition = "2018"
 
  
 [dependencies]
-unescaper = "0.1.2"
 pcre2 = "0.2.5"
 tokio = { version = "1.11.0", features = ["full"] }
 tokio-native-tls = "0.3.0"

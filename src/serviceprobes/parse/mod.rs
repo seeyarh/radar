@@ -4,6 +4,7 @@ use std::iter::Peekable;
 
 pub mod match_directive;
 pub mod probe_directive;
+mod unescape;
 
 use crate::serviceprobes::{
     parse::{match_directive::parse_match_line, probe_directive::parse_probe_line},

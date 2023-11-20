@@ -1,6 +1,6 @@
+use crate::serviceprobes::parse::unescape::unescape;
 use crate::serviceprobes::{Probe, TransportProtocol};
 use std::str::FromStr;
-use unescaper::unescape;
 
 pub fn parse_probe_line(line: &str) -> Option<Probe> {
     let parts: Vec<&str> = line.split_whitespace().collect();
@@ -16,8 +16,7 @@ pub fn parse_probe_line(line: &str) -> Option<Probe> {
     let remainder = &probe[probe_start_index..];
     let probe_end_index = remainder.find(delimiter)?;
     let probe = &remainder[..probe_end_index];
-    let probe = unescape(probe).unwrap();
-    let probe = probe.as_bytes();
+    let probe = unescape(probe.into());
     let mut no_payload = false;
 
     if remainder.len() > probe_end_index + 1 {
@@ -74,5 +73,15 @@ mod tests {
         assert_eq!(parsed_line.transport_protocol, TransportProtocol::UDP);
         assert_eq!(parsed_line.data, ("\x02").as_bytes());
         assert_eq!(parsed_line.no_payload, true);
+    }
+
+    #[test]
+    fn test_parse_probe_hex() {
+        //let line = r#"Probe TCP SSLSessionReq q|\x16\x03\0\0S\x01\0\0O\x03\0?G\xd7\xf7\xba,\xee\xea\xb2`~\xf3\0\xfd\x82{\xb9\xd5\x96\xc8w\x9b\xe6\xc4\xdb<=\xdbo\xef\x10n\0\0(\0\x16\0\x13\0\x0a\0f\0\x05\0\x04\0e\0d\0c\0b\0a\0`\0\x15\0\x12\0\x09\0\x14\0\x11\0\x08\0\x06\0\x03\x01\0|"#;
+
+        let line = r#"Probe TCP SSLSessionReq q|\xd7|"#;
+        let result = parse_probe_line(line);
+        assert!(result.is_some());
+        let parsed_line = result.unwrap();
     }
 }
